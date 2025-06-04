@@ -21,6 +21,7 @@ static void rehash (struct hash *);
 
 /* Initializes hash table H to compute hash values using HASH and
    compare hash elements using LESS, given auxiliary data AUX. */
+/* 해시테이블 초기화 */
 bool
 hash_init (struct hash *h,
 		hash_hash_func *hash, hash_less_func *less, void *aux) {
@@ -87,7 +88,9 @@ hash_destroy (struct hash *h, hash_action_func *destructor) {
 /* Inserts NEW into hash table H and returns a null pointer, if
    no equal element is already in the table.
    If an equal element is already in the table, returns it
-   without inserting NEW. */
+   without inserting NEW. 
+   이미 같은 원소가 있다면 삽입하지 않고 기존 원소를 반환하고, 아니라면 삽입 후 NULL을 반환한다.
+   */
 struct hash_elem *
 hash_insert (struct hash *h, struct hash_elem *new) {
 	struct list *bucket = find_bucket (h, new);
@@ -147,6 +150,7 @@ hash_delete (struct hash *h, struct hash_elem *e) {
    any of the functions hash_clear(), hash_destroy(),
    hash_insert(), hash_replace(), or hash_delete(), yields
    undefined behavior, whether done from ACTION or elsewhere. */
+/* 해시 테이블을 돌면서 모든 원소에 대해서 사용자가 지정한 작업을 실행한다. */
 void
 hash_apply (struct hash *h, hash_action_func *action) {
 	size_t i;
@@ -181,6 +185,7 @@ hash_apply (struct hash *h, hash_action_func *action) {
    functions hash_clear(), hash_destroy(), hash_insert(),
    hash_replace(), or hash_delete(), invalidates all
    iterators. */
+/* 위 주석은 해시 테이블을 iterator로 순회하기 위한 방법을 설명하고 있다. */
 void
 hash_first (struct hash_iterator *i, struct hash *h) {
 	ASSERT (i != NULL);
@@ -199,6 +204,7 @@ hash_first (struct hash_iterator *i, struct hash *h) {
    functions hash_clear(), hash_destroy(), hash_insert(),
    hash_replace(), or hash_delete(), invalidates all
    iterators. */
+/* 버킷의 리스트를 순회하다가, 끝에 도달하면 다음 버킷으로 이동한다. 더 이상 요소가 없으면 NULL을 반환.*/
 struct hash_elem *
 hash_next (struct hash_iterator *i) {
 	ASSERT (i != NULL);
@@ -391,4 +397,5 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 	h->elem_cnt--;
 	list_remove (&e->list_elem);
 }
+
 

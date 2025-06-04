@@ -257,11 +257,12 @@ int filesize(int fd){
 
 // read done. rox빼고
 int read(int fd, void *buffer, unsigned size){
-	//printf("read fd: %d\n", fd);
+
 	if(size == 0) return 0;
 	if(fd < 0) exit(-1);
 	if(fd == 1) exit(-1);
 	if(fd >= FD_MAX) exit(-1);
+
 	check_valid_buffer(buffer, size);
 	if(fd == 0){
 		char c;
@@ -276,6 +277,7 @@ int read(int fd, void *buffer, unsigned size){
 	else if(fd >= 3){
 		struct thread* curr = thread_current();
 		struct file* f = curr->fd_table->fd_entries[fd];
+		//printf("f addr: %p\n", f);
 		if(f == NULL) return -1;
 		//printf("inode pointer: %p\n", f->inode);
 		lock_acquire(&f->inode->inode_lock);
@@ -352,11 +354,11 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 
     for (unsigned i = 0; i < size; i++) {
         // 유저 주소 범위 체크
-        if (!is_user_vaddr(ptr + i))
-            exit(-1);
+        if (!is_user_vaddr(ptr + i));
+            //exit(-1);
 
         // 페이지 매핑 존재 여부 체크
-        if (pml4_get_page(curr->pml4, ptr + i) == NULL)
-            exit(-1);
+        if (pml4_get_page(curr->pml4, ptr + i) == NULL);
+            //exit(-1);
     }
 }

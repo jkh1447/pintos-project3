@@ -1,3 +1,6 @@
+/* VM을 위한 define */
+#define VM
+
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -28,6 +31,8 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+
+
 
 /* General process initializer for initd and other process. */
 static void
@@ -331,7 +336,6 @@ __do_fork (void *aux) {
 	/* Finally, switch to the newly created process. */
 	if (succ){
 		//printf("DEBUG: Child PID %d, Setting rax to %d (0x%x)\n", current->tid, if_.R.rax, if_.R.rax);
-
 		do_iret (&if_);
 	}
 error:
@@ -389,7 +393,7 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if);
 	//printf("here\n");
 	//hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
-
+	//printf("success: %d\n", success);
 	palloc_free_page(f_name);
 	/* If load failed, quit. */
 	//실패시 종료
@@ -404,6 +408,7 @@ process_exec (void *f_name) {
 
 	/* Start switched process. */
 	// cpu제어권이 커널 -> 사용자 모드로 전환
+	
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -849,10 +854,10 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 	return true;
 }
 
-#ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
- * If you want to implement the function for whole project 2, implement it
- * outside of #ifndef macro. */
+* If you want to implement the function for whole project 2, implement it
+* outside of #ifndef macro. */
+#ifndef VM
 
 /* load() helpers. */
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -937,34 +942,66 @@ setup_stack (struct intr_frame *if_) {
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
- * virtual address KPAGE to the page table.
- * If WRITABLE is true, the user process may modify the page;
- * otherwise, it is read-only.
- * UPAGE must not already be mapped.
- * KPAGE should probably be a page obtained from the user pool
- * with palloc_get_page().
- * Returns true on success, false if UPAGE is already mapped or
- * if memory allocation fails. */
+* virtual address KPAGE to the page table.
+* If WRITABLE is true, the user process may modify the page;
+* otherwise, it is read-only.
+* UPAGE must not already be mapped.
+* KPAGE should probably be a page obtained from the user pool
+* with palloc_get_page().
+* Returns true on success, false if UPAGE is already mapped or
+* if memory allocation fails. */
 static bool
 install_page (void *upage, void *kpage, bool writable) {
 	struct thread *t = thread_current ();
-
+	
 	/* Verify that there's not already a page at that virtual
-	 * address, then map our page there. */
-	return (pml4_get_page (t->pml4, upage) == NULL
-			&& pml4_set_page (t->pml4, upage, kpage, writable));
+	* address, then map our page there. */
+return (pml4_get_page (t->pml4, upage) == NULL
+&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
-#else
 /* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
+* If you want to implement the function for only project 2, implement it on the
+* upper block. */
+
+#else
+
+
+/* lazy load segment의 aux인자를 위한 구조체 */
+struct load_segment_para{
+	struct file *file;
+	off_t ofs;
+	uint8_t *upage;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+	bool writable;
+};
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	//printf("lazy load segment\n");
+	struct load_segment_para* para = aux;
+
+	file_seek(para->file, para->ofs);
+	uint8_t *kpage = page->frame->kva;
+	//if(kpage == NULL) return false;
+	
+	if(file_read(para->file, kpage, para->read_bytes) != (int) para->read_bytes){
+		// 실패시 처리를 어떻게 할지 나중에 결정
+		// 아마 aux는 각 페이지의 destroy함수에서 free할 듯?
+		// false를 반환하면 페이지폴트로 처리 됨.
+		return false;
+	}
+	// 나머지는 0으로 채움.
+	memset(kpage + para->read_bytes, 0, para->zero_bytes);
+	
+
+	return true;
 }
+
+
 
 /* Loads a segment starting at offset OFS in FILE at address
  * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
@@ -986,17 +1023,31 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
-
+	//printf("load_segment\n");
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		/* 읽을 바이트가 한 페이지 크기보다 큰지 작은지에 따라 읽을 바이트가 달라짐.
+			파일의 마지막은 한 페이지 크기보다 작을 확률이 높음. 
+			페이지의 남은 부분은 0으로 채워지므로, 0으로 채워지는 바이트크기도 계산.
+		*/
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+		struct load_segment_para *lsp = calloc(1, sizeof(struct load_segment_para));
+		lsp->file = file;
+		lsp->ofs = ofs;
+		lsp->upage = upage;
+		lsp->read_bytes = page_read_bytes;
+		lsp->zero_bytes = page_zero_bytes;
+		lsp->writable = writable;
+		aux = lsp;
+
+		// VM_FILE이 아닌가??
+		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
 					writable, lazy_load_segment, aux))
 			return false;
 
@@ -1004,6 +1055,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		/* file_read를 하지 않기 때문에 수동으로 ofs을 이동시켜줘야 한다. */
+		ofs += page_read_bytes;  
 	}
 	return true;
 }
@@ -1013,12 +1066,19 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-
+	//printf("setup_stack\n");
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-
+	
+	/* 스택 페이지는 익명페이지이다.*/
+	success = vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , stack_bottom, true, NULL, NULL);
+	//printf("after vm alloc: %d\n", success);
+	vm_claim_page(stack_bottom);
+	if(success) if_->rsp = USER_STACK;
+	/* 실패시 메모리 반환 */
+	
 	return success;
 }
 #endif /* VM */
