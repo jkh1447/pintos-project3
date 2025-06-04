@@ -3,6 +3,25 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "hash.h"
+
+/*해쉬값을 반환해주는 함수*/
+unsigned
+page_hash(const struct hash_elem *p_, void *aux UNUSED)
+{
+    const struct page *p = hash_entry(p_, struct page, hash_elem);
+    return hash_bytes(&p->va, sizeof p->va);
+}
+
+/*해쉬에 추가 할때 순서대로 비교하는 함수*/
+bool page_less(const struct hash_elem *a_,
+               const struct hash_elem *b_, void *aux UNUSED)
+{
+    const struct page *a = hash_entry(a_, struct page, hash_elem);
+    const struct page *b = hash_entry(b_, struct page, hash_elem);
+
+    return a->va < b->va;
+}
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -174,6 +193,7 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init(spt, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
