@@ -245,6 +245,9 @@ thread_create(const char* name, int priority,
   memset(t->fd_table, 0, sizeof(struct fd_table));
 
 
+  /* mmap table init */
+  t->mmap_table = calloc(1, sizeof(struct mmap_table));
+
   /* Call the kernel_thread if it scheduled.
    * Note) rdi is 1st argument, and rsi is 2nd argument. */
   t->tf.rip = (uintptr_t)kernel_thread;

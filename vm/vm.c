@@ -51,9 +51,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	// vm_type이 VM_UNINIT이면 안된다.
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
-	//printf("vm_alloc_page_with_initializer\n");
-	//printf("upage: %p\n", upage);
-	
+	// printf("vm_alloc_page_with_initializer\n");
+	// printf("upage: %p\n", upage);
+	// printf("writable: %d\n", writable);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
@@ -78,7 +78,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* uninit page 초기화 */
 		uninit_new(page, upage, init, type, aux, page_initializer);
 		
-		
+		//printf("writable: %d\n", writable);
 		page->writable = writable;
 		
 		/* TODO: Insert the page into the spt. */
@@ -121,6 +121,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&spt->spt_table, &page->elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -167,6 +168,18 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+
+	//printf("stack growth\n");
+	while(pml4_get_page(thread_current()->pml4, addr) == NULL){
+
+		vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
+		//printf("after vm alloc: %d\n", success);
+		vm_claim_page(addr);
+
+		addr += PGSIZE;
+	}
+	/* 스택 페이지는 익명페이지이다.*/
+	
 }
 
 /* Handle the fault on write_protected page */
@@ -181,21 +194,30 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
- 
+	//printf("vm fault handler addr: %p\n", addr);
 	//void *va = pg_round_down(addr);
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	/* valid address인지 확인 */
+	// 유저모드에서 발생한 인터럽트인지 체크
 	page = spt_find_page(spt, addr);
+	//printf("page->va: %p\n", page->va);
 	if(page == NULL) {
-		
-
+		if((f->cs & 0x3) == 0x3){
+			// printf("user mode interrupt\n");
+			// rsp는 아직 스택포인터를 내리기 전, addr은 내린 후의 주소
+			if((USER_STACK - (1 << 20)) <= addr && addr >= f->rsp - 8 && addr <= USER_STACK){
+				// 폴트난 addr에서 가장 가까운 1페이지 주소로 내림
+				vm_stack_growth(pg_round_down(addr));
+				return true;
+			}
+		}
 		return false;
 	}
 	
 	enum vm_type type = page->operations->type;
 	if(VM_TYPE(type) != VM_UNINIT) return false;
-	 
+	//printf("do claim\n");
 	return vm_do_claim_page (page);
 }
 
@@ -228,6 +250,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	// printf("pml4_set_page\n");
 	// printf("page->writable: %d\n", page->writable);
 	// printf("page->va: %p\n", page->va);
 	pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable);
@@ -265,7 +288,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct page* page = hash_entry(hash_cur(&i), struct page, elem);
 		// 첫 폴트가 아직 안났을 경우
 		if(page->operations->type == VM_UNINIT){
-			if(!vm_alloc_page_with_initializer(page->uninit.type	, page->va, page->writable,
+			if(!vm_alloc_page_with_initializer(page->uninit.type, page->va, page->writable,
 			page->uninit.init, page->uninit.aux))
 			{
 				printf("vm_alloc_page_with_initializer failed\n");
@@ -309,9 +332,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 }
 
 void hash_kill(struct hash_elem *e, void *aux){
-	// struct page *page = hash_entry(e, struct page, elem);
-    // destroy(page);
-	// free(page);
+	struct page *page = hash_entry(e, struct page, elem);
+    destroy(page);
+	free(page);
 }
 
 /* Free the resource hold by the supplemental page table */

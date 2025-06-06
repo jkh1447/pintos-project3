@@ -786,20 +786,6 @@ static bool
 	if_->R.rdi = argc;
 
 
-	// 지성
-	// size_t len = strlen(argv[0]) + 1;
-	// if_->rsp -= len;
-	// memcpy((void *)if_->rsp, argv[0], len);
-	// argv_stack[0] = (char *)if_->rsp;
-	// while(if_->rsp % 16 != 0){
-	// 	if_->rsp -= 1;
-	// 	memset((void*)if_->rsp, 0, sizeof(char));
-	// }
-	// len = sizeof (char *);
-	// memcpy((void *)if_->rsp, &argv_stack[0], len);
-	// //if_->R.rsi = if_->rsp;
-	// if_->R.rdi = argc;
-
 	success = true;
 
 done:
@@ -967,16 +953,38 @@ return (pml4_get_page (t->pml4, upage) == NULL
 
 
 /* lazy load segment의 aux인자를 위한 구조체 */
-struct load_segment_para{
-	struct file *file;
-	off_t ofs;
-	uint8_t *upage;
-	uint32_t read_bytes;
-	uint32_t zero_bytes;
-	bool writable;
-};
+bool
+lazy_load_segment_mmap (struct page *page, void *aux) {
+	/* TODO: Load the segment from the file */
+	/* TODO: This called when the first page fault occurs on address VA. */
+	/* TODO: VA is available when calling this function. */
+	//printf("lazy load segment\n");
+	struct load_segment_para* para = aux;
 
-static bool
+	file_seek(para->file, para->ofs);
+	uint8_t *kpage = page->frame->kva;
+	//printf("kpage: %p\n", kpage);
+	//if(kpage == NULL) return false;
+	int result = file_read(para->file, kpage, para->read_bytes);
+	// printf("result: %d\n", result);
+	// printf("read_bytes: %d\n", para->read_bytes);
+	// printf("zeof_bytes: %d\n", para->zero_bytes);
+	// if(result != (int) para->read_bytes){
+	// 	// 실패시 처리를 어떻게 할지 나중에 결정
+	// 	// 아마 aux는 각 페이지의 destroy함수에서 free할 듯?
+	// 	// false를 반환하면 페이지폴트로 처리 됨.
+	// 	printf("fail\n");
+	// 	return false;
+	// }
+	// 나머지는 0으로 채움.
+	memset(kpage + para->read_bytes, 0, para->zero_bytes);
+	
+
+	return true;
+}
+
+
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
@@ -986,12 +994,14 @@ lazy_load_segment (struct page *page, void *aux) {
 
 	file_seek(para->file, para->ofs);
 	uint8_t *kpage = page->frame->kva;
+	//printf("kpage: %p\n", kpage);
 	//if(kpage == NULL) return false;
-	
+
 	if(file_read(para->file, kpage, para->read_bytes) != (int) para->read_bytes){
 		// 실패시 처리를 어떻게 할지 나중에 결정
 		// 아마 aux는 각 페이지의 destroy함수에서 free할 듯?
 		// false를 반환하면 페이지폴트로 처리 됨.
+		printf("fail\n");
 		return false;
 	}
 	// 나머지는 0으로 채움.
@@ -1076,6 +1086,7 @@ setup_stack (struct intr_frame *if_) {
 	success = vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , stack_bottom, true, NULL, NULL);
 	//printf("after vm alloc: %d\n", success);
 	vm_claim_page(stack_bottom);
+	
 	if(success) if_->rsp = USER_STACK;
 	/* 실패시 메모리 반환 */
 	

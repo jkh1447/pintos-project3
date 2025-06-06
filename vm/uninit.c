@@ -85,5 +85,7 @@ uninit_destroy (struct page *page) {
 	/* 나중에 aux 등이 동적할당 되어있다면 그것을 free 
 	page 자체는 caller가 free한다.
 	*/
-	free(page->uninit.aux);
+
+	//free(page->uninit.aux);
+	
 }

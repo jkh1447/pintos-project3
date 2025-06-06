@@ -280,6 +280,8 @@ pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
 	ASSERT (pg_ofs (kpage) == 0);
 	ASSERT (is_user_vaddr (upage));
 	ASSERT (pml4 != base_pml4);
+
+	//printf("pml4_set_page, upage: %p, rw: %d\n", upage, rw);
 	// 가상주소에 해당하는 페이지테이블엔트리
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) upage, 1);
 	// kpage는 물리주소를 간접적으로 표현?, pte값 설정해줌

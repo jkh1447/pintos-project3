@@ -7,5 +7,7 @@
 void
 test_main (void) 
 {
+ 
+  //msg("sample addr: %p\n", sample);
   check_file ("sample.txt", sample, sizeof sample - 1);
 }

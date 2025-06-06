@@ -32,7 +32,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	struct anon_page *anon_page = &page->anon;
 	/* anon_page 멤버 변수들 초기화 */
-	
+
 	
 }
 
@@ -52,5 +52,8 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	free(page->uninit.aux);
+	struct file_page *file_page UNUSED = &page->file;
+	palloc_free_page(page->frame->kva);
+	pml4_clear_page(thread_current()->pml4, page->va);
+	free(page->frame);
 }
