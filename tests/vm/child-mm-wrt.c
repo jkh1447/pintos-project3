@@ -20,5 +20,6 @@ test_main (void)
   CHECK ((handle = open ("sample.txt")) > 1, "open \"sample.txt\"");
   CHECK (mmap (ACTUAL, sizeof sample, 1, handle, 0) != MAP_FAILED, "mmap \"sample.txt\"");
   memcpy (ACTUAL, sample, sizeof sample);
+  //msg("%s\n", ACTUAL);
 }
 

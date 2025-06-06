@@ -313,6 +313,17 @@ __do_fork (void *aux) {
 		struct file* copied_file = file_duplicate(parent->fd_table->fd_entries[fd]);
 		current->fd_table->fd_entries[fd] = copied_file;
 	}
+
+
+	// mmap table도 복사
+	// for(int fd=3; fd<FD_MAX; fd++){
+		
+	// 	if(parent->mmap_table->mmap_table[fd] == NULL) continue;
+	// 	struct file* copied_file = file_duplicate(parent->mmap_table->mmap_table[fd]);
+	// 	current->mmap_table->mmap_table[fd] = copied_file;
+	// }
+
+
 	
 	// 자식 프로세스가 준비를 마쳤다는것을 알리기
 	//lock_acquire(&thread_current()->childlist_lock);

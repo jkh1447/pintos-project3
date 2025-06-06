@@ -152,6 +152,15 @@ void exit(int status){
 		file_close(curr->user_prog);
 	}
 
+	struct mmap_table **mmap_table = thread_current()->mmap_table->mmap_table;
+	for(int i=0; i<FD_MAX; i++){
+		if(mmap_table[i] == NULL) continue;
+		//printf("i: %d\n", i);
+		struct mmap_entry *e = mmap_table[i];
+		munmap(e->addr);
+	}
+
+
 	struct file **fd_entries = curr->fd_table->fd_entries;
 	for(int i=0; i<FD_MAX; i++){
 		if(fd_entries[i] == NULL) continue;
@@ -187,6 +196,9 @@ void exit(int status){
 		printf("%s: exit(%d)\n", curr->name, status);
 		
 	}
+
+	
+
 	
 	thread_exit();
 }
@@ -432,7 +444,8 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	
 	void *adrs = addr;
 	struct thread *curr = thread_current();
-	struct file *file = curr->fd_table->fd_entries[fd];
+	// struct file *file = curr->fd_table->fd_entries[fd];
+	struct file *file = file_reopen(curr->fd_table->fd_entries[fd]);
 	//printf("file: %p\n", file);
 	uint32_t read_bytes = length;
 	uint32_t zero_bytes = ((length + PGSIZE - 1) / PGSIZE * PGSIZE) - length;
@@ -489,8 +502,9 @@ munmap (void *addr) {
 	struct mmap_entry *e = NULL;
 	struct mmap_entry **mmap_table = thread_current()->mmap_table->mmap_table;
 	for(int i = 3; i<FD_MAX; i++){
-		if(mmap_table[i]->addr == addr){
+		if(mmap_table[i] != NULL && mmap_table[i]->addr == addr){
 			e = mmap_table[i];
+			mmap_table[i] = NULL;
 			break;
 		}
 	}
@@ -508,7 +522,7 @@ munmap (void *addr) {
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		if(pml4_is_dirty(thread_current()->pml4, tmpaddr)){
 			size_t result = file_write(e->file, tmpaddr, page_read_bytes);
-			//printf("write byte: %d\n", result);
+			//printf("dirty write byte: %d\n", result);
 		}
 		struct page *page = spt_find_page(&thread_current()->spt, tmpaddr);
 		if(!page) return;
@@ -518,6 +532,8 @@ munmap (void *addr) {
 		tmpaddr += PGSIZE;
 	}
 	
-	file_seek(e->file, 0);
+
+	
+	//file_seek(e->file, 0);
 
 }
