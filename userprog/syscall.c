@@ -352,11 +352,11 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 
     for (unsigned i = 0; i < size; i++) {
         // 유저 주소 범위 체크
-        if (!is_user_vaddr(ptr + i))
-            exit(-1);
+        if (!is_user_vaddr(ptr + i));
+            // exit(-1);
 
         // 페이지 매핑 존재 여부 체크
-        if (pml4_get_page(curr->pml4, ptr + i) == NULL)
-            exit(-1);
+        if (pml4_get_page(curr->pml4, ptr + i) == NULL);
+            // exit(-1);
     }
 }

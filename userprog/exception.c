@@ -133,10 +133,9 @@ page_fault (struct intr_frame *f) {
 
 	/* bad behavior  */
 
-	if(!is_user_vaddr(fault_addr) || pml4_get_page(thread_current()->pml4, fault_addr) == NULL || fault_addr == NULL)
-		exit(-1);
+	// if(!is_user_vaddr(fault_addr) || pml4_get_page(thread_current()->pml4, fault_addr) == NULL || fault_addr == NULL)
+	// 	exit(-1);
 	
-
 	/* Turn interrupts back on (they were only off so that we could
 	   be assured of reading CR2 before it changed). */
 	intr_enable ();
@@ -152,16 +151,16 @@ page_fault (struct intr_frame *f) {
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
 #endif
+/* Count page faults. */
+page_fault_cnt++;
 
-	/* Count page faults. */
-	page_fault_cnt++;
-
-	/* If the fault is true fault, show info and exit. */
+/* If the fault is true fault, show info and exit. */
 	printf ("Page fault at %p: %s error %s page in %s context.\n",
-			fault_addr,
-			not_present ? "not present" : "rights violation",
-			write ? "writing" : "reading",
-			user ? "user" : "kernel");
+	fault_addr,
+	not_present ? "not present" : "rights violation",
+	write ? "writing" : "reading",
+	user ? "user" : "kernel");
+	exit(-1);
 	kill (f);
 }
 
