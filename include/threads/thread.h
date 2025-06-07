@@ -110,6 +110,7 @@ struct mmap_entry{
 	struct file* file;
 	size_t length;
 	int pagesize;
+	off_t ofs;
 };
 
 struct mmap_table{

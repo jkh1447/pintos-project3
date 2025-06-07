@@ -236,6 +236,7 @@ int wait (pid_t pid){
 bool create(const char *file, unsigned initial_size) {
 	if(file == NULL) exit(-1);
 	if(!isValidAddress(file)) exit(-1);
+	//lock_acquire(&filesys_lock);
 	bool success = filesys_create(file, initial_size);
 	return success;
 }
@@ -420,16 +421,20 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// addr must be page-aligned.
 	// if length is zero, then fail
 	if(length <= 0) return NULL;
+	/* 64비트 주소가 표현할 수 있는 주소 공간 크기를 벗어나는 길이 */
+	if(length > (1ULL << 48)) return NULL;
 	if((uintptr_t)addr < 0) return NULL;
 	if((uintptr_t)addr < 0x400000) return NULL;
 	if((uintptr_t)addr >= KERN_BASE) return NULL;
 	if(fd == 0 || fd == 1 || fd >= FD_MAX) return NULL;
 	if(addr != pg_round_down(addr)) return NULL;
+	if(length < offset) return NULL;
 	if(filesize(fd) == 0) return NULL;
 	//printf("here\n");
 	void *t_addr;
 	t_addr = addr;
 
+	off_t real_ofs = offset;
 	// printf("addr: %p\n", addr);
 	// printf("length: %u\n", (uintptr_t)addr + length);
 	// range of pages does not overlap any existing mapped page
@@ -489,7 +494,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	e->file = file;
 	e->length = length;
 	e->pagesize = pagesize;
-
+	e->ofs = real_ofs;
 	thread_current()->mmap_table->mmap_table[fd] = e;
 
 
@@ -516,7 +521,7 @@ munmap (void *addr) {
 	if(e == NULL) return;
 	//printf("%s\n", addr);
 	
-	file_seek(e->file, 0);
+	file_seek(e->file, e->ofs);
 	// 수정된 경우
 	void *tmpaddr = addr;
 	size_t read_bytes = e->length; 

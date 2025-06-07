@@ -185,13 +185,13 @@ vm_get_frame (void) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 
-	//printf("stack growth\n");
+	//printf("stack growth addr: %p\n", addr);
 
 
 	vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
 	//printf("after vm alloc: %d\n", success);
 	vm_claim_page(addr);
-	
+
 	
 }
 
@@ -220,8 +220,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 			void* rsp = user ? f->rsp : thread_current()->rsp;
 			// printf("user mode interrupt\n");
 			
-			if(((USER_STACK - (1 << 20)) <= addr && rsp < addr && addr <= USER_STACK) ||
-				((USER_STACK - (1 << 20)) <= addr && addr == rsp - 8 && addr <= USER_STACK)){
+			if(((USER_STACK - (1 << 20)) <= addr && rsp <= addr && addr <= USER_STACK) ||
+				((USER_STACK - (1 << 20)) <= addr && addr >= rsp - 8 && addr <= USER_STACK)){
 				// 폴트난 addr에서 가장 가까운 1페이지 주소로 내림
 				vm_stack_growth(pg_round_down(addr));
 
