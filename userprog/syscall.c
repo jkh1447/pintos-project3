@@ -80,6 +80,8 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 
+	thread_current()->rsp = f->rsp;
+
 	// 시스템 콜 번호
 	uint64_t syscall_num = f->R.rax;
 

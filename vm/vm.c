@@ -166,19 +166,32 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
+// static void
+// vm_stack_growth (void *addr UNUSED) {
+
+// 	//printf("stack growth\n");
+// 	while(pml4_get_page(thread_current()->pml4, addr) == NULL){
+
+// 		vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
+// 		//printf("after vm alloc: %d\n", success);
+// 		vm_claim_page(addr);
+
+// 		addr += PGSIZE;
+// 	}
+// 	/* 스택 페이지는 익명페이지이다.*/
+	
+// }
+
 static void
 vm_stack_growth (void *addr UNUSED) {
 
 	//printf("stack growth\n");
-	while(pml4_get_page(thread_current()->pml4, addr) == NULL){
 
-		vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
-		//printf("after vm alloc: %d\n", success);
-		vm_claim_page(addr);
 
-		addr += PGSIZE;
-	}
-	/* 스택 페이지는 익명페이지이다.*/
+	vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
+	//printf("after vm alloc: %d\n", success);
+	vm_claim_page(addr);
+	
 	
 }
 
@@ -203,12 +216,15 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(spt, addr);
 	//printf("page->va: %p\n", page->va);
 	if(page == NULL) {
-		if((f->cs & 0x3) == 0x3){
+		if(not_present){
+			void* rsp = user ? f->rsp : thread_current()->rsp;
 			// printf("user mode interrupt\n");
-			// rsp는 아직 스택포인터를 내리기 전, addr은 내린 후의 주소
-			if((USER_STACK - (1 << 20)) <= addr && addr >= f->rsp - 8 && addr <= USER_STACK){
+			
+			if(((USER_STACK - (1 << 20)) <= addr && rsp < addr && addr <= USER_STACK) ||
+				((USER_STACK - (1 << 20)) <= addr && addr == rsp - 8 && addr <= USER_STACK)){
 				// 폴트난 addr에서 가장 가까운 1페이지 주소로 내림
 				vm_stack_growth(pg_round_down(addr));
+
 				return true;
 			}
 		}
