@@ -110,13 +110,13 @@ inode_open (disk_sector_t sector) {
 	/* Check whether this inode is already open. */
 	for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
 			e = list_next (e)) {
+					//printf("here\n");
 		inode = list_entry (e, struct inode, elem);
 		if (inode->sector == sector) {
 			inode_reopen (inode);
 			return inode; 
 		}
 	}
-
 	/* Allocate memory. */
 	inode = malloc (sizeof *inode);
 	if (inode == NULL)
@@ -212,8 +212,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 			 * into caller's buffer. */
 			if (bounce == NULL) {
 				bounce = malloc (DISK_SECTOR_SIZE);
-				if (bounce == NULL)
+				if (bounce == NULL){
 					break;
+				}
 			}
 			disk_read (filesys_disk, sector_idx, bounce);
 			memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);

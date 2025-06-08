@@ -32,7 +32,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
-
+//struct lock file_lock;	
 
 /* General process initializer for initd and other process. */
 static void
@@ -54,6 +54,8 @@ process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
+
+	//lock_init(&file_lock);
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	// 한 페이지만큼 메모리를 할당해서 프로그램 이름을 저장할 준비를 함.
@@ -633,6 +635,8 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
 		bool writable);
 
+
+	
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
  * and its initial stack pointer into *RSP.
@@ -641,7 +645,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  시작주소(rip)와 초기 스택 포인터(rsp)를 설정한다.*/
 static bool
 	load (const char *file_name, struct intr_frame *if_) {
-
+	
 	//printf("load curr magic: 0x%x\n", thread_current()->magic);
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
@@ -659,7 +663,7 @@ static bool
 	for(token = strtok_r(s, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
 		argv[argc++] = token;
 	}
-	//printf("load name: %s\n",argv[1]);
+	//printf("load name: %s %s\n",argv[0], argv[1]);
 	
 	/* Allocate and activate page directory. */
 	// 현재 스레드에 대한 사용자 주소 공간을 생성한다
@@ -671,13 +675,17 @@ static bool
 	//printf("load curr magic:\n");
 	/* Open executable file. */
 	// 사용자 프로그램을 파일 시스템에서 연다
+	//lock_acquire(&file_lock);
 	file = filesys_open (argv[0]);
+
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
+		
+		//lock_release(&file_lock);
 		goto done;
 	}
-
 	
+
 	file_deny_write(file);
 	t->user_prog = file;
 
@@ -802,6 +810,7 @@ static bool
 done:
 	/* We arrive here whether the load is successful or not. */
 	//file_close (file);
+	//lock_release(&file_lock);
 	return success;
 }
 

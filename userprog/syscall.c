@@ -45,7 +45,7 @@ void munmap (void *addr);
 bool isValidAddress(const void *ptr);
 bool isValidString(const char *str);
 
-struct lock filesys_lock;
+struct lock syscall_lock;
 
 /* System call.
  *
@@ -72,7 +72,7 @@ syscall_init (void) {
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
-	lock_init(&filesys_lock);
+	lock_init(&syscall_lock);
 }
 
 /* The main system call interface */
@@ -199,7 +199,7 @@ void exit(int status){
 		
 	}
 
-	
+	if(lock_held_by_current_thread(&syscall_lock)) lock_release(&syscall_lock);
 
 	
 	thread_exit();
@@ -234,48 +234,58 @@ int wait (pid_t pid){
 
 // all done. process wait 구현해야 완전 통과
 bool create(const char *file, unsigned initial_size) {
+
 	if(file == NULL) exit(-1);
+	lock_acquire(&syscall_lock);
 	if(!isValidAddress(file)) exit(-1);
-	//lock_acquire(&filesys_lock);
 	bool success = filesys_create(file, initial_size);
+	lock_release(&syscall_lock);
 	return success;
 }
 
 bool remove (const char *file){
-	
+	//lock_acquire(&filesys_lock);
 	bool result = filesys_remove(file);
+	//lock_acquire(&filesys_lock);
 	return result;
 }
 
 // open done.
 int open(const char *file){
+	lock_acquire(&syscall_lock);
 	if(!isValidString(file)) exit(-1);
 	if(file == NULL) return -1;
 	struct file* f = filesys_open(file);
 	
 
 	//printf("f address: %p\n", f);
-	if(f == NULL) return -1;
-	
+	if(f == NULL) {
+		lock_release(&syscall_lock);
+		return -1;
+	}
 
 	struct thread* curr = thread_current();
 	// 0, 1, 2는 예약된 fd
 	for(int fd = 3; fd < FD_MAX; fd++){
 		if(curr->fd_table->fd_entries[fd] == NULL){
 			curr->fd_table->fd_entries[fd] = f;
+			lock_release(&syscall_lock);
 			return fd;
 		}
 	}
 	// fd table 꽉 찼을 때
 	file_close(f);
+	lock_release(&syscall_lock);
 	return -1;
 }
 
 int filesize(int fd){
 	int size = 0;
+	lock_acquire(&syscall_lock);
 	struct thread* curr = thread_current();
 	struct file* f = curr->fd_table->fd_entries[fd];
 	size = file_length(f);
+	lock_release(&syscall_lock);
 	return size;
 }
 
@@ -309,7 +319,7 @@ int read(int fd, void *buffer, unsigned size){
 		
 	// }
 
-
+	lock_acquire(&syscall_lock);
 	if(fd == 0){
 		char c;
 		int i=0;
@@ -318,6 +328,7 @@ int read(int fd, void *buffer, unsigned size){
 			((char *)buffer)[i] = c;
 			if(c == '\n') break;
 		}
+		lock_release(&syscall_lock);
 		return i+1;
 	}
 	else if(fd >= 3){
@@ -329,6 +340,7 @@ int read(int fd, void *buffer, unsigned size){
 		struct page *page = spt_find_page(&curr->spt, buffer);
 		if(page && !page->writable){
 			//printf("2 physical addr: %p\n", page->frame->kva);
+			lock_release(&syscall_lock);
 			exit(-1);
 		}
 		//file_seek(f, 0);
@@ -336,8 +348,10 @@ int read(int fd, void *buffer, unsigned size){
 		int result = file_read(f, buffer, size);
 		lock_release(&f->inode->inode_lock);
 		//printf("file_read returned %d\n", result);
+		lock_release(&syscall_lock);
 		return result;
 	}
+	lock_release(&syscall_lock);
 }
 
 // write done
@@ -349,16 +363,24 @@ int write(int fd, const void *buffer, unsigned size){
 	
 	// 표준 출력
 	check_valid_buffer(buffer, size);
+	lock_acquire(&syscall_lock);
 	if(fd == 1 || fd == 2){
 		putbuf(buffer, (size_t)size);
+		lock_release(&syscall_lock);
 		return (int)size;
 	}
 	else{
 		struct thread* curr = thread_current();
 		struct file* f = curr->fd_table->fd_entries[fd];
-		if(f == NULL) exit(-1);
-		return file_write(f, buffer, size);
+		if(f == NULL) {
+			lock_release(&syscall_lock);
+			exit(-1);
+		}
+		off_t result = file_write(f, buffer, size);
+		lock_release(&syscall_lock);
+		return result;
 	}
+	lock_release(&syscall_lock);
 	return 0;
 }
 
@@ -377,10 +399,12 @@ void close(int fd){
 	if(fd < 0) exit(-1);
 	if(fd == 0 || fd == 1 || fd == 2) exit(-1);
 	if(fd >= FD_MAX) exit(-1);
+	lock_acquire(&syscall_lock);
 	struct thread *curr = thread_current();
 	struct file *file = curr->fd_table->fd_entries[fd];
 	curr->fd_table->fd_entries[fd] = NULL;
 	file_close(file);
+	lock_release(&syscall_lock);
 }
 
 bool isValidAddress(const void *ptr){
@@ -416,7 +440,6 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 
 void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-
 	// if file has a length of zero bytes
 	// addr must be page-aligned.
 	// if length is zero, then fail
@@ -430,6 +453,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	if(addr != pg_round_down(addr)) return NULL;
 	if(length < offset) return NULL;
 	if(filesize(fd) == 0) return NULL;
+	lock_acquire(&syscall_lock);
 	//printf("here\n");
 	void *t_addr;
 	t_addr = addr;
@@ -442,8 +466,10 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 		//printf("검사\n");
 		if(t_addr > KERN_BASE) return NULL;
 		struct page* page = spt_find_page(&thread_current()->spt, t_addr);
-		if(page) return NULL;
-
+		if(page) {
+			lock_release(&syscall_lock);
+			return NULL;
+		}
 		t_addr += PGSIZE;
 		
 	}
@@ -477,8 +503,10 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 		aux = lsp;
 
 		if (!vm_alloc_page_with_initializer (VM_FILE, adrs,
-					writable, lazy_load_segment_mmap, aux))
-			return NULL;
+					writable, lazy_load_segment_mmap, aux)){
+						lock_release(&syscall_lock);
+						return NULL;
+					}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
@@ -499,7 +527,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 
 
 	
-
+	lock_release(&syscall_lock);
 	return addr;
 }	
 
@@ -520,7 +548,7 @@ munmap (void *addr) {
 	// printf("length: %d\n", e->length);
 	if(e == NULL) return;
 	//printf("%s\n", addr);
-	
+	lock_acquire(&syscall_lock);
 	file_seek(e->file, e->ofs);
 	// 수정된 경우
 	void *tmpaddr = addr;
@@ -532,7 +560,10 @@ munmap (void *addr) {
 			//printf("dirty write byte: %d\n", result);
 		}
 		struct page *page = spt_find_page(&thread_current()->spt, tmpaddr);
-		if(!page) return;
+		if(!page) {
+			lock_release(&syscall_lock);
+			return;
+		}
 		spt_remove_page(&thread_current()->spt, page);
 		
 		read_bytes -= page_read_bytes;
@@ -540,7 +571,7 @@ munmap (void *addr) {
 	}
 	
 
-	
+	lock_release(&syscall_lock);
 	//file_seek(e->file, 0);
 
 }

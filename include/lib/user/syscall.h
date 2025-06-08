@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <debug.h>
 #include <stddef.h>
+#include "threads/synch.h"
+
+//struct lock filesys_lock;
 
 /* Process identifier. */
 typedef int pid_t;
