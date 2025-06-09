@@ -146,5 +146,8 @@ static void page_fault(struct intr_frame *f) {
   printf("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
          not_present ? "not present" : "rights violation",
          write ? "writing" : "reading", user ? "user" : "kernel");
+
+  // debug_backtrace();
+
   kill(f);
 }

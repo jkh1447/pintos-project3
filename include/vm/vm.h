@@ -50,6 +50,7 @@ struct page {
   struct frame *frame; /*  해당 프레임에 대한 역참조 */
   /* 여기에 구현 */
   struct hash_elem hash_elem;
+  struct file_info *file_info;
   bool writable;
 
   /* Per-type data are binded into the union.
