@@ -272,29 +272,68 @@ void supplemental_page_table_init(struct supplemental_page_table *spt) {
 /* SPT를 src에서 dst로 복사 */
 bool supplemental_page_table_copy(struct supplemental_page_table *dst,
                                   struct supplemental_page_table *src) {
+  // hash_iterator를 초기화, src의 해시 테이블 순회를 시작
   struct hash_iterator i;
   hash_first(&i, &src->sp_table_hash);
   while (hash_next(&i)) {
+    // 현재 해시 요소에서 원본 페이지를 가져옴
     struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
     void *upage = src_page->va;
 
-    /* Allocate a new page in the destination SPT */
-    if (!vm_alloc_page_with_initializer(
-            page_get_type(src_page), upage, src_page->writable,
-            src_page->uninit.init, src_page->uninit.aux)) {
-      return false;
-    }
+    /*
+     * 원본 페이지가 초기화되지 않은 상태(VM_UNINIT)인 경우,
+     * 초기화 함수를 사용하여 페이지를 복사
+     */
+    if (src_page->operations->type == VM_UNINIT) {
+      if (!vm_alloc_page_with_initializer(
+              src_page->uninit.type, upage, src_page->writable,
+              src_page->uninit.init, src_page->uninit.aux)) {
+        printf("vm_alloc_page_with_initializer failed\n");
+        return false;
+      }
+    } else {
+      /*
+       * 이미 초기화된 페이지의 경우,
+       * 새로운 페이지 구조체를 생성하고 필요한 정보를 복사
+       */
+      struct page *newpage = calloc(1, sizeof(struct page));
+      if (!newpage) {
+        printf("page allocation failed\n");
+        return false;
+      }
 
-    struct page *dst_page = spt_find_page(dst, upage);
-    if (dst_page == NULL) {
-      return false;
-    }
+      // 페이지의 연산자, 가상 주소, 쓰기 가능 여부를 복사
+      newpage->operations = src_page->operations;
+      newpage->va = src_page->va;
+      newpage->writable = src_page->writable;
 
-    if (!vm_do_claim_page(dst_page)) {
-      return false;
-    }
+      // 페이지 유형에 따라 추가 정보를 복사
+      switch (VM_TYPE(src_page->operations->type)) {
+      case VM_ANON:
+        newpage->anon = src_page->anon;
+        break;
+      case VM_FILE:
+        newpage->file = src_page->file;
+        break;
+      default:
+        free(newpage);
+        return false;
+      }
 
-    memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+      // 새로운 프레임을 할당하고 페이지와 연결
+      newpage->frame = vm_get_frame();
+      newpage->frame->page = newpage;
+      // 기존 페이지의 내용을 새로운 프레임에 복사
+      memcpy(newpage->frame->kva, src_page->frame->kva, PGSIZE);
+
+      // 새로운 페이지를 대상 supplemental_page_table에 삽입
+      if (!spt_insert_page(dst, newpage))
+        return false;
+      // 현재 스레드의 페이지 테이블에 페이지 매핑 정보를 추가
+      if (!pml4_set_page(thread_current()->pml4, newpage->va,
+                         newpage->frame->kva, newpage->writable))
+        return false;
+    }
   }
   return true;
 }
