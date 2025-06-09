@@ -15,5 +15,6 @@ test_main (void)
   CHECK ((handle = open ("sample.txt")) > 1, "open \"sample.txt\"");
   CHECK (mmap ((void *) handle_page, 4096, 0, handle, 0) == MAP_FAILED,
          "try to mmap over stack segment");
+  
 }
 

@@ -48,6 +48,16 @@
 #define CMD_READ_SECTOR_RETRY 0x20      /* READ SECTOR with retries. */
 #define CMD_WRITE_SECTOR_RETRY 0x30     /* WRITE SECTOR with retries. */
 
+/*
+	채널 hd0 (channel)
+	┌─────────────────────┐
+	│  devices[0] (master)│ → Disk hd0:0 (첫 번째 디스크)
+	│  devices[1] (slave) │ → Disk hd0:1 (두 번째 디스크)
+	└─────────────────────┘
+
+*/
+
+
 /* An ATA device. */
 struct disk {
 	char name[8];               /* Name, e.g. "hd0:1". */
@@ -182,6 +192,7 @@ disk_print_stats (void) {
 1:0 - scratch
 1:1 - swap
 */
+/* channel과 disk 번호를 통해서 disk 구조체를 요청. */
 struct disk *
 disk_get (int chan_no, int dev_no) {
 	ASSERT (dev_no == 0 || dev_no == 1);
@@ -207,10 +218,13 @@ disk_size (struct disk *d) {
    room for DISK_SECTOR_SIZE bytes.
    Internally synchronizes accesses to disks, so external
    per-disk locking is unneeded. */
+/* disk d에서 sec_no번째 sector에서 DISK_SECTOR_SIZE(512Bytes)만큼 읽어서 
+   buffer에 저장.
+*/
 void
 disk_read (struct disk *d, disk_sector_t sec_no, void *buffer) {
 	struct channel *c;
-
+	
 	ASSERT (d != NULL);
 	ASSERT (buffer != NULL);
 
@@ -231,6 +245,7 @@ disk_read (struct disk *d, disk_sector_t sec_no, void *buffer) {
    acknowledged receiving the data.
    Internally synchronizes accesses to disks, so external
    per-disk locking is unneeded. */
+
 void
 disk_write (struct disk *d, disk_sector_t sec_no, const void *buffer) {
 	struct channel *c;

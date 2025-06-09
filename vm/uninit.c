@@ -65,7 +65,7 @@ uninit_initialize (struct page *page, void *kva) {
 	/* lazy load info */
 	void *aux = uninit->aux;
 
-	
+	//printf("here\n");
 
 	// vm type에 맞는 초기화함수를 호출하고, lazy load한다.
 	/* TODO: You may need to fix this function. */

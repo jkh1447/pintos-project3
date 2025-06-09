@@ -52,6 +52,10 @@ struct page {
 	/* Your implementation */
 	/* iswritable? */
 	bool writable;
+
+	/* True if the page has been swapped out to disk */
+    bool is_swapped;
+	
 	/* hash table에 추가하기 위해서 */
 	struct hash_elem elem;
 	/* Per-type data are binded into the union.
@@ -70,6 +74,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
 };
 
 /* The function table for page operations.

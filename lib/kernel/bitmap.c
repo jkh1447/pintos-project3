@@ -18,21 +18,27 @@
    and so on. */
 typedef unsigned long elem_type;
 
-/* Number of bits in an element. */
+/* Number of bits in an element. 
+   elem_type가 몇 비트인가? */
 #define ELEM_BITS (sizeof (elem_type) * CHAR_BIT)
 
 /* From the outside, a bitmap is an array of bits.  From the
    inside, it's an array of elem_type (defined above) that
    simulates an array of bits. */
 struct bitmap {
-	// 이 비트맵에 포함된 비트의 총 개수
+	// 이 비트맵에 포함된 비트의 총 개수, swap slot의 개수. 
+	// bits 배열 크기가 2라면 bit_cnt는 128이 된다.
 	size_t bit_cnt;     /* Number of bits. */
-	// 정수배열, 64비트 숫자로 관리한다
+	/* elem_type을 저장하는 배열이다. 
+	예를 들어서, 64비트라면 bits[i]에 64개의 비트를 담는 셈이다.*/
 	elem_type *bits;    /* Elements that represent bits. */
 };
 
 /* Returns the index of the element that contains the bit
    numbered BIT_IDX. */
+/* n번째 스왑슬롯의 비트맵 상에서의 index를 계산한다. 
+   예를 들면, 138번째 슬롯은 138 / 64(bit) = 10 이기 때문에,
+   bits[10]에 정수배열(elem_type)가 있다. */
 static inline size_t
 elem_idx (size_t bit_idx) {
 	return bit_idx / ELEM_BITS;
@@ -40,18 +46,24 @@ elem_idx (size_t bit_idx) {
 
 /* Returns an elem_type where only the bit corresponding to
    BIT_IDX is turned on. */
+/* 주어진 비트 인덱스를 1로 만든 비트 마스크를 생성한다.
+   해당 마스크를 OR하면 해당 비트를 1로 만들고,
+   AND ~mask 하면 0으로 만든다. */
 static inline elem_type
 bit_mask (size_t bit_idx) {
 	return (elem_type) 1 << (bit_idx % ELEM_BITS);
 }
 
 /* Returns the number of elements required for BIT_CNT bits. */
+/* 주어진 비트 수를 저장하기 위해 필요한 최소 elem_type의 개수를 계산.
+   swap구현중이라면 비트수가 swap slot 수. */
 static inline size_t
 elem_cnt (size_t bit_cnt) {
 	return DIV_ROUND_UP (bit_cnt, ELEM_BITS);
 }
 
 /* Returns the number of bytes required for BIT_CNT bits. */
+/* bit_cnt(slot 개수)를 저장하려면 몇 바이트가 필요한가? */
 static inline size_t
 byte_cnt (size_t bit_cnt) {
 	return sizeof (elem_type) * elem_cnt (bit_cnt);
@@ -59,6 +71,11 @@ byte_cnt (size_t bit_cnt) {
 
 /* Returns a bit mask in which the bits actually used in the last
    element of B's bits are set to 1 and the rest are set to 0. */
+/* bit_cnt가 elem_bits와 딱 떨어지지 않을 수 있다.
+   그렇다면 마지막 elem_type에서 일부 비트는 사용하지 않는 비트이기 때문에 
+   건드리면 안된다. 
+   마지막 elem_type에서 사용되는 비트만 1로 한 마스킹을 리턴한다.
+   순회할때 사용됨. */
 static inline elem_type
 last_mask (const struct bitmap *b) {
 	int last_bits = b->bit_cnt % ELEM_BITS;
@@ -71,6 +88,8 @@ last_mask (const struct bitmap *b) {
    and sets all of its bits to false.
    Returns true if success, false if memory allocation
    failed. */
+/* bit_cnt개의 비트를 가지는 bitmap을 생성한다.
+   swap slot의 개수가 bit_cnt가 될 수 있다. */
 struct bitmap *
 bitmap_create (size_t bit_cnt) {
 	struct bitmap *b = malloc (sizeof *b);
@@ -130,6 +149,7 @@ bitmap_size (const struct bitmap *b) {
 /* Setting and testing single bits. */
 
 /* Atomically sets the bit numbered IDX in B to VALUE. */
+/* 비트맵 b에서 idx번째 비트를 true or false로 설정. */
 void
 bitmap_set (struct bitmap *b, size_t idx, bool value) {
 	ASSERT (b != NULL);
@@ -269,6 +289,8 @@ bitmap_all (const struct bitmap *b, size_t start, size_t cnt) {
    consecutive bits in B at or after START that are all set to
    VALUE.
    If there is no such group, returns BITMAP_ERROR. */
+/* 처음 등장하는 0인 비트의 인덱스를 찾을 수 있을지 않을까?
+   size_t idx = bitmap_scan(b, 0, 1, false); */
 size_t
 bitmap_scan (const struct bitmap *b, size_t start, size_t cnt, bool value) {
 	ASSERT (b != NULL);

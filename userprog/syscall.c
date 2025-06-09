@@ -440,9 +440,7 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 
 void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-	// if file has a length of zero bytes
-	// addr must be page-aligned.
-	// if length is zero, then fail
+
 	if(length <= 0) return NULL;
 	/* 64비트 주소가 표현할 수 있는 주소 공간 크기를 벗어나는 길이 */
 	if(length > (1ULL << 48)) return NULL;
@@ -531,47 +529,87 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	return addr;
 }	
 
-void
-munmap (void *addr) {
-	//printf("munmap\n");
-	struct mmap_entry *e = NULL;
-	struct mmap_entry **mmap_table = thread_current()->mmap_table->mmap_table;
-	for(int i = 3; i<FD_MAX; i++){
-		if(mmap_table[i] != NULL && mmap_table[i]->addr == addr){
-			e = mmap_table[i];
-			mmap_table[i] = NULL;
-			break;
-		}
-	}
-	// printf("addr: %p\n", addr);
-	// printf("addr file: %p\n", e->file);
-	// printf("length: %d\n", e->length);
-	if(e == NULL) return;
-	//printf("%s\n", addr);
-	lock_acquire(&syscall_lock);
-	file_seek(e->file, e->ofs);
-	// 수정된 경우
-	void *tmpaddr = addr;
-	size_t read_bytes = e->length; 
-	while(read_bytes > 0){
-		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-		if(pml4_is_dirty(thread_current()->pml4, tmpaddr)){
-			size_t result = file_write(e->file, tmpaddr, page_read_bytes);
-			//printf("dirty write byte: %d\n", result);
-		}
-		struct page *page = spt_find_page(&thread_current()->spt, tmpaddr);
-		if(!page) {
-			lock_release(&syscall_lock);
-			return;
-		}
-		spt_remove_page(&thread_current()->spt, page);
+// void
+// munmap (void *addr) {
+// 	//printf("munmap\n");
+// 	struct mmap_entry *e = NULL;
+// 	struct mmap_entry **mmap_table = thread_current()->mmap_table->mmap_table;
+// 	for(int i = 3; i<FD_MAX; i++){
+// 		if(mmap_table[i] != NULL && mmap_table[i]->addr == addr){
+// 			e = mmap_table[i];
+// 			mmap_table[i] = NULL;
+// 			break;
+// 		}
+// 	}
+// 	if(e == NULL) return;
+// 	// printf("addr: %p\n", addr);
+// 	// printf("addr file: %p\n", e->file);
+// 	// printf("length: %d\n", e->length);
+// 	//printf("%s\n", addr);
+// 	lock_acquire(&syscall_lock);
+	
+// 	// 수정된 경우
+// 	size_t offset = e->ofs;
+// 	void *tmpaddr = addr;
+// 	size_t read_bytes = e->length; 
+// 	while(read_bytes > 0){
+// 		file_seek(e->file, offset);
+// 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+// 		if(pml4_is_dirty(thread_current()->pml4, tmpaddr)){
+// 			size_t result = file_write(e->file, tmpaddr, page_read_bytes);
+// 			//printf("dirty write byte: %d\n", result);
+// 			//printf("dirty\n");
+// 		}
+// 		//printf("mid\n");
+// 		struct page *page = spt_find_page(&thread_current()->spt, tmpaddr);
+// 		if(!page) {
+// 			lock_release(&syscall_lock);
+// 			//printf("null page\n");
+			
+// 		}
+// 		spt_remove_page(&thread_current()->spt, page);
 		
-		read_bytes -= page_read_bytes;
-		tmpaddr += PGSIZE;
-	}
+// 		//printf("end\n");
+// 		read_bytes -= page_read_bytes;
+// 		tmpaddr += PGSIZE;
+// 		offset += PGSIZE;
+// 	}
 	
 
-	lock_release(&syscall_lock);
-	//file_seek(e->file, 0);
+// 	lock_release(&syscall_lock);
+// 	//file_seek(e->file, 0);
+// 	//printf("munmap done\n");
+
+// }
+
+void
+munmap (void *addr) {
+	struct thread *curr = thread_current();
+    struct page *page;
+
+    lock_acquire(&syscall_lock);
+    while ((page = spt_find_page(&curr->spt, addr))) {
+		struct file_page *file_page UNUSED = &page->file;
+
+		if(pml4_is_dirty(thread_current()->pml4, page->va)){
+			file_write_at(file_page->file, file_page->upage, file_page->read_bytes, file_page->ofs);
+			pml4_set_dirty(thread_current()->pml4, page->va, false);
+		}
+
+		if(page->frame){
+			list_remove(&page->frame->elem);
+			page->frame->page = NULL;
+			palloc_free_page(page->frame->kva);
+			free(page->frame);
+			page->frame = NULL;
+			
+		}
+
+		pml4_clear_page(thread_current()->pml4, page->va);
+		spt_remove_page(&thread_current()->spt, page);
+		
+        addr += PGSIZE;
+    }
+    lock_release(&syscall_lock);
 
 }

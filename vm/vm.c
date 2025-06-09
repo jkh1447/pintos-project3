@@ -7,6 +7,14 @@
 #include "include/threads/mmu.h"
 #include "include/threads/thread.h"
 
+/* frame table */
+struct list frame_table;
+struct list_elem *clock_hand;
+
+struct lock frame_lock;
+
+void frame_table_init(void);
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -19,7 +27,15 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	frame_table_init();
+	lock_init(&frame_lock);
 }
+
+/* frame table */
+void frame_table_init(){
+	list_init(&frame_table);
+}
+
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
@@ -52,10 +68,11 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	// vm_type이 VM_UNINIT이면 안된다.
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 	// printf("vm_alloc_page_with_initializer\n");
+	// printf("type: %d\n", type);
 	// printf("upage: %p\n", upage);
 	// printf("writable: %d\n", writable);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-
+			
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
 		/* TODO: Create the page, fetch the initializer according to the VM type,
@@ -129,20 +146,79 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	// lock_acquire(&frame_lock);
+	// struct frame *victim = NULL;
+	// //printf("vm_get_victim\n");
+	// /* clock algorithm */
+	// if(clock_hand == NULL) clock_hand = list_begin(&frame_table);
+	// // printf("get victim here\n");
+	// // printf("clock hand: %p\n", clock_hand);	
+	// // printf("frame table end: %p\n", list_end(&frame_table));
+	// // printf("frame table begin: %p\n", list_begin(&frame_table));
+	// struct thread *curr = thread_current();
+	// while(true){
+	// 	if(clock_hand == list_end(&frame_table)){
+	// 		clock_hand = list_begin(&frame_table);
+	// 	}
+	// 	// printf("clock hand: %p\n", clock_hand);	
+	// 	struct frame *f = list_entry(clock_hand, struct frame, elem);
 
-	return victim;
+	// 	if(pml4_is_accessed(curr->pml4, f->page->va)){
+	// 		pml4_set_accessed(curr->pml4, f->page->va, false);
+	// 		clock_hand = list_next(clock_hand);
+	// 	}
+	// 	else{
+	// 		victim = list_entry(clock_hand, struct frame, elem);
+	// 		clock_hand = list_next(clock_hand);
+	// 		//printf("here\n");
+	// 		lock_release(&frame_lock);
+	// 		return victim;
+	// 	}
+		
+	// }
+	// lock_release(&frame_lock);
+	// return NULL;
+
+	struct frame *victim = NULL;
+    /* TODO: The policy for eviction is up to you. */
+    struct thread *curr = thread_current();
+
+    // Second Chance 방식으로 결정
+    struct list_elem *e = list_begin(&frame_table);
+    for (e; e != list_end(&frame_table); e = list_next(e)) {
+        victim = list_entry(e, struct frame, elem);
+        if (pml4_is_accessed(curr->pml4, victim->page->va))
+            pml4_set_accessed(curr->pml4, victim->page->va, false);  // pml4가 최근에 사용됐다면 기회를 한번 더 준다.
+        else
+            return victim;
+    }
+
+    return list_entry(list_begin(&frame_table), struct frame, elem);
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
+// 희생자 프레임을 골라서 해당 프레임을 swap out 하고
+// frame을 free할 필요 없는것 같다. 다시 쓴다.
+// pml4에서의 연결만 해제해준다.
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	if(!victim) return NULL;
+	
+	
+	struct page *page = victim->page;
+	/* swap out */
+	swap_out(page);
+	// 매핑 해제
+	pml4_clear_page(thread_current()->pml4, page->va);
+	
+	page->frame = NULL;
+	victim->page = NULL;
+	
+	//victim->page->frame = NULL;
 
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -151,43 +227,37 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
+	
 	struct frame *frame = NULL;
 	/* swap 을 구현하기 전에는 할당 실패시 PANIC */
 	frame = calloc(1, sizeof(struct frame));
-	if(frame == NULL) PANIC("todo");
+	if(frame == NULL) PANIC("frame allocate fail");
+	
+
 	void *p = palloc_get_page(PAL_USER);
-	if(p == NULL) PANIC("todo");
+	if(p == NULL) {
+		struct frame *f = vm_evict_frame();
+		// printf("return evicted frame\n");
+		return f;
+	}
 
 	frame->kva = p;
+
+	list_push_back(&frame_table, &frame->elem);
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
 }
 
-/* Growing the stack. */
-// static void
-// vm_stack_growth (void *addr UNUSED) {
 
-// 	//printf("stack growth\n");
-// 	while(pml4_get_page(thread_current()->pml4, addr) == NULL){
-
-// 		vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
-// 		//printf("after vm alloc: %d\n", success);
-// 		vm_claim_page(addr);
-
-// 		addr += PGSIZE;
-// 	}
-// 	/* 스택 페이지는 익명페이지이다.*/
-	
-// }
 
 static void
 vm_stack_growth (void *addr UNUSED) {
 
-	//printf("stack growth addr: %p\n", addr);
-
-
+	// printf("stack growth addr: %p\n", addr);
+	
+	//printf("stack growth\n");
 	vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , addr, true, NULL, NULL);
 	//printf("after vm alloc: %d\n", success);
 	vm_claim_page(addr);
@@ -207,14 +277,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
-	//printf("vm fault handler addr: %p\n", addr);
-	//void *va = pg_round_down(addr);
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	// printf("vm fault handler addr: %p\n", addr);
+
+	
 	/* valid address인지 확인 */
-	// 유저모드에서 발생한 인터럽트인지 체크
 	page = spt_find_page(spt, addr);
-	//printf("page->va: %p\n", page->va);
+	// printf("page->va: %p\n", page->va);
+	// printf("page->type: %d\n", VM_TYPE(page->uninit.type));
 	if(page == NULL) {
 		if(not_present){
 			void* rsp = user ? f->rsp : thread_current()->rsp;
@@ -231,9 +300,11 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		return false;
 	}
 	
+	if(write && !page->writable) return false;
+	
 	enum vm_type type = page->operations->type;
-	if(VM_TYPE(type) != VM_UNINIT) return false;
 	//printf("do claim\n");
+	//if(VM_TYPE(type) != VM_UNINIT) return false;
 	return vm_do_claim_page (page);
 }
 
@@ -260,16 +331,19 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-
+	//printf("get frame done\n");
 	/* Set links */
 	frame->page = page; 
 	page->frame = frame;
-
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// printf("pml4_set_page\n");
 	// printf("page->writable: %d\n", page->writable);
 	// printf("page->va: %p\n", page->va);
-	pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable);
+	// printf("kva: %p\n", page->frame->kva);
+	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable))
+		PANIC("set page fail");
+	
+	//printf("do claim page type: %d\n", page->operations->type);
 	
 	return swap_in (page, frame->kva);
 }
@@ -356,7 +430,5 @@ void hash_kill(struct hash_elem *e, void *aux){
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-
 	hash_clear(&spt->spt_table, hash_kill);
-	
 }

@@ -735,6 +735,11 @@ static bool
 					uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
 					uint64_t page_offset = phdr.p_vaddr & PGMASK;
 					uint32_t read_bytes, zero_bytes;
+					/* .bss와 .data 영역은 같이 로드된다. 
+					   .bss와 .data도 lazy load된다. */
+					// printf("filesize: %d\n", phdr.p_filesz);
+					// printf("memsz: %d\n", phdr.p_memsz);
+					// printf("writable: %d\n", writable);
 					if (phdr.p_filesz > 0) {
 						/* Normal segment.
 						 * Read initial part from disk and zero the rest. */
@@ -748,6 +753,7 @@ static bool
 						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
 					}
 					// 페이지를 할당하고 파일에서 내용을 읽거 메모리에 적재
+					
 					if (!load_segment (file, file_page, (void *) mem_page,
 								read_bytes, zero_bytes, writable))
 						goto done;
@@ -1027,7 +1033,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	// 나머지는 0으로 채움.
 	memset(kpage + para->read_bytes, 0, para->zero_bytes);
 	
-
+	//printf("lazy load done\n");
 	return true;
 }
 
@@ -1077,9 +1083,20 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		aux = lsp;
 
 		// VM_FILE이 아닌가??
-		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+		if(writable){
+			if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
+
+		}
+		else{
+			if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+					writable, lazy_load_segment, aux))
+			return false;
+		}
+		// if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+		// 			writable, lazy_load_segment, aux))
+		// 	return false;
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
