@@ -187,6 +187,7 @@ vm_get_frame(void)
 static void
 vm_stack_growth(void *addr UNUSED)
 {
+	
 }
 
 /* Handle the fault on write_protected page */
@@ -258,10 +259,56 @@ void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED)
 }
 
 /* Copy supplemental page table from src to dst */
-bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
-								  struct supplemental_page_table *src UNUSED)
+bool
+supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
+		struct supplemental_page_table *src UNUSED) 
 {
-	
+	struct hash_iterator i;
+	hash_first(&i, &src->spt_hash);
+	while (hash_next(&i))
+	{
+		// src_page 정보
+		struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+		enum vm_type type = src_page->operations->type;
+		void *upage = src_page->va;
+		bool writable = src_page->writable;
+ 
+		/* 1) type이 uninit이면 */
+		if (type == VM_UNINIT)
+		{ // uninit page 생성 & 초기화
+			vm_initializer *init = src_page->uninit.init;
+			void *aux = src_page->uninit.aux;
+			vm_alloc_page_with_initializer(VM_ANON, upage, writable, init, aux);
+			continue;
+		}
+ 
+		/* 2) type이 uninit이 아니면 */
+		if (!vm_alloc_page_with_initializer(type, upage, writable, NULL, NULL)) // uninit page 생성 & 초기화
+			// init(lazy_load_segment)는 page_fault가 발생할때 호출됨
+			// 지금 만드는 페이지는 page_fault가 일어날 때까지 기다리지 않고 바로 내용을 넣어줘야 하므로 필요 없음
+			return false;
+ 
+		// vm_claim_page으로 요청해서 매핑 & 페이지 타입에 맞게 초기화
+		if (!vm_claim_page(upage))
+			return false;
+ 
+		// 매핑된 프레임에 내용 로딩
+		struct page *dst_page = spt_find_page(dst, upage);
+		memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+	}
+	return true;
+}
+
+void hash_page_destroy(struct hash_elem *e)
+{
+	// 페이지 정보 가져오기
+	struct page *p = hash_entry(e, struct page, hash_elem);
+
+	// 페이지가 메모리에 올라가 있으면 frame도 해제
+	vm_dealloc_page(p); 
+
+	// 페이지 구조체 해제
+	free(p);
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -269,4 +316,5 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED)
 {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear(&spt->spt_hash, hash_page_destroy);
 }
