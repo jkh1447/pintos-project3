@@ -14,6 +14,7 @@
 #include "include/lib/string.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
+#include "include/vm/vm.h"
 // #include "filesys/inode.h"
 // #include "threads/malloc.h"
 // /* An open file. */
@@ -77,6 +78,7 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 
+	thread_current()->rsp = f->rsp;
 	// 시스템 콜 번호
 	uint64_t syscall_num = f->R.rax;
 
@@ -258,6 +260,20 @@ int filesize(int fd){
 // read done. rox빼고
 int read(int fd, void *buffer, unsigned size){
 	//printf("read fd: %d\n", fd);
+	uint8_t *start = pg_round_down(buffer);
+    uint8_t *end = pg_round_down(buffer + size - 1);
+
+    for (; start <= end; start += PGSIZE) {
+        if (!is_user_vaddr(start))
+            exit(-1); // 유저 영역 주소인지 확인
+        // 여기서 find만 하지 말고 fault 처리에 맡기기
+        struct page *page = spt_find_page(&thread_current()->spt, start);
+        if (page != NULL && !page->writable) {
+            exit(-1);
+        }
+        // page == NULL이면 fault 핸들러가 처리하도록 둠
+    }
+	
 	if(size == 0) return 0;
 	if(fd < 0) exit(-1);
 	if(fd == 1) exit(-1);

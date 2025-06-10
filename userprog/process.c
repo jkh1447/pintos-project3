@@ -394,7 +394,7 @@ int process_exec(void *f_name)
 	success = load(file_name, &_if);
 	// printf("here\n");
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
-	
+
 	palloc_free_page(f_name);
 	/* If load failed, quit. */
 	// 실패시 종료
@@ -945,7 +945,6 @@ setup_stack(struct intr_frame *if_)
 			palloc_free_page(kpage);
 	}
 	return success;
-	
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -973,12 +972,12 @@ install_page(void *upage, void *kpage, bool writable)
 /* lazy load segment의 aux인자를 위한 구조체 */
 struct lazy_load_info
 {
-	struct file *file;            // 이 페이지를 위해 읽어올 파일 객체 포인터
-	off_t ofs;                    // 파일 내에서 읽기를 시작할 위치 (offset)
-	uint8_t *upage;              // 이 데이터를 매핑할 사용자 가상 주소 (user page)
-	size_t page_read_bytes;      // 파일에서 읽어 실제 메모리에 채울 바이트 수
-	size_t page_zero_bytes;      // 나머지를 0으로 채워야 할 바이트 수 (페이지의 끝까지)
-	bool writable;               // 해당 페이지가 사용자 프로그램에 의해 쓰기 가능한지 여부
+	struct file *file;		// 이 페이지를 위해 읽어올 파일 객체 포인터
+	off_t ofs;				// 파일 내에서 읽기를 시작할 위치 (offset)
+	uint8_t *upage;			// 이 데이터를 매핑할 사용자 가상 주소 (user page)
+	size_t page_read_bytes; // 파일에서 읽어 실제 메모리에 채울 바이트 수
+	size_t page_zero_bytes; // 나머지를 0으로 채워야 할 바이트 수 (페이지의 끝까지)
+	bool writable;			// 해당 페이지가 사용자 프로그램에 의해 쓰기 가능한지 여부
 };
 
 static bool
@@ -1001,6 +1000,9 @@ lazy_load_segment(struct page *page, void *aux)
 
 	// 남은 영역 0으로 채우기
 	memset(kva + page_read_bytes, 0, page_zero_bytes);
+
+	// 페이지의 writable 플래그 설정
+	page->writable = info->writable;
 
 	// 페이지 매핑
 	return true;
@@ -1049,7 +1051,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		lli->writable = writable;
 		aux = lli;
 
-		//elf파일에서 읽어온거니까 VM_FILE
+		// elf파일에서 읽어온거니까 VM_FILE
 		if (!vm_alloc_page_with_initializer(VM_FILE, upage,
 											writable, lazy_load_segment, aux))
 			return false;
@@ -1060,7 +1062,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		upage += PGSIZE;
 
 		/* file_read를 하지 않기 때문에 수동으로 ofs을 이동시켜줘야 한다. */
-		ofs += page_read_bytes;  
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -1078,10 +1080,11 @@ setup_stack(struct intr_frame *if_)
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 	/* 스택 페이지는 익명페이지이다.*/
-	success = vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0 , stack_bottom, true, NULL, NULL);
-	//printf("after vm alloc: %d\n", success);
+	success = vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, true, NULL, NULL);
+	// printf("after vm alloc: %d\n", success);
 	vm_claim_page(stack_bottom);
-	if(success) if_->rsp = USER_STACK;
+	if (success)
+		if_->rsp = USER_STACK;
 
 	return success;
 }
