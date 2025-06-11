@@ -1,11 +1,11 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
+#include "include/vm/vm.h"
+#include "threads/interrupt.h"
 #include "threads/synch.h"
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
-#include "threads/interrupt.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -152,7 +152,7 @@ struct thread {
   /* Table for whole virtual memory owned by thread. */
   struct supplemental_page_table spt;
   void *stack_bottom;
-  void *rsp_stack;
+  void *rsp;
 #endif
 
   /* Owned by thread.c. */

@@ -195,7 +195,10 @@ static struct frame *vm_get_frame(void) {
 }
 
 /* 스택 성장(확장)하기??? */
-static void vm_stack_growth(void *addr) {}
+static void vm_stack_growth(void *addr) {
+  vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, addr, true, NULL, NULL);
+  vm_claim_page(addr);
+}
 
 /* write_protected page에서 fault 처리 */
 static bool vm_handle_wp(struct page *page) {}
@@ -212,18 +215,28 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
     return false;
   }
 
-  if (not_present) {
-    page = spt_find_page(spt, addr);
-    if (page == NULL) {
-      return false;
-    }
-    if (write == 1 && page->writable == 0) {
-      return false;
-    }
-    return vm_do_claim_page(page);
-  }
+  page = spt_find_page(spt, addr);
+  if (page == NULL) {
+    if (not_present) {
+      if (write == 1 && page->writable == 0) {
+        return false;
+      }
 
-  return false;
+      void *rsp = user ? f->rsp : thread_current()->rsp;
+      if (((USER_STACK - (1 << 20)) <= addr && rsp <= addr &&
+           addr <= USER_STACK) ||
+          ((USER_STACK - (1 << 20)) <= addr && addr >= rsp - 8 &&
+           addr <= USER_STACK)) {
+        vm_stack_growth(pg_round_down(addr));
+        return true;
+      }
+      return false;
+    }
+  }
+  enum vm_type type = page->operations->type;
+  if (VM_TYPE(type) != VM_UNINIT)
+    return false;
+  return vm_do_claim_page(page);
 }
 
 /* Free the page.
