@@ -43,6 +43,8 @@ void close (int fd);
 bool isValidAddress(const void *ptr);
 bool isValidString(const char *str);
 
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset);
+
 struct lock filesys_lock;
 
 /* System call.
@@ -126,6 +128,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			close((int)f->R.rdi);
 			break;
+
+		case SYS_MMAP:
+			f->R.rax = mmap((void *)f->R.rdi, (size_t)f->R.rsi, (int)f->R.rdx, (int)f->R.r10, (off_t)f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			break;
+
 		default:
 			thread_exit();
 	}
@@ -375,4 +384,10 @@ void check_valid_buffer(const void *buffer, unsigned size) {
         if (pml4_get_page(curr->pml4, ptr + i) == NULL);
             // exit(-1);
     }
+}
+
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset){
+	struct thread *curr = thread_current();
+	struct file *file = curr->fd_table->fd_entries[fd];
+	return do_mmap(addr, length, writable, file, offset);
 }
