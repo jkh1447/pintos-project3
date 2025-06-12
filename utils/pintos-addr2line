@@ -1,0 +1,10 @@
+#!/bin/bash
+# pintos-addr2line: Show file and line number corresponding to an address.
+
+if [ $# -lt 3 ]; then
+  echo "Usage: $0 -e elf-file address..." >&2
+  exit 1
+fi
+
+exec addr2line "$@"
+

@@ -252,9 +252,10 @@ pml4_activate (uint64_t *pml4) {
 void *
 pml4_get_page (uint64_t *pml4, const void *uaddr) {
 	ASSERT (is_user_vaddr (uaddr));
-
+	
 	// 테이블 자체가 없으면 그냥 바로 NULL 리턴하게 됨.
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) uaddr, 0);
+	//printf("pml4_get_page pte: %p\n", uaddr);
 
 	if (pte && (*pte & PTE_P))
 		return ptov (PTE_ADDR (*pte)) + pg_ofs (uaddr);
@@ -280,13 +281,16 @@ pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
 	ASSERT (is_user_vaddr (upage));
 	ASSERT (pml4 != base_pml4);
 
+	//printf("pml4_set_page, upage: %p, rw: %d\n", upage, rw);
 	// 가상주소에 해당하는 페이지테이블엔트리
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) upage, 1);
 	// kpage는 물리주소를 간접적으로 표현?, pte값 설정해줌
 	if (pte)
-		// vtop함수는 그냥 kpage - KERN_BASE이다. 
-		// 그리고 하위 3비트를 or 연산으로 설정해준 뒤 페이지 테이블 엔트리를 설정한다.
-		*pte = vtop (kpage) | PTE_P | (rw ? PTE_W : 0) | PTE_U;
+	// vtop함수는 그냥 kpage - KERN_BASE이다. 
+	// 그리고 하위 3비트를 or 연산으로 설정해준 뒤 페이지 테이블 엔트리를 설정한다.
+	*pte = vtop (kpage) | PTE_P | (rw ? PTE_W : 0) | PTE_U;
+	
+	//printf("pml4_set_page: %p\n", upage);
 	return pte != NULL;
 }
 

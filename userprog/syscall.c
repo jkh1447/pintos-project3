@@ -14,6 +14,7 @@
 #include "include/lib/string.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
+#include "include/vm/vm.h"
 // #include "filesys/inode.h"
 // #include "threads/malloc.h"
 // /* An open file. */
@@ -39,10 +40,12 @@ int write(int fd, const void *buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close (int fd);
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap (void *addr);
 bool isValidAddress(const void *ptr);
 bool isValidString(const char *str);
 
-struct lock filesys_lock;
+struct lock syscall_lock;
 
 /* System call.
  *
@@ -69,13 +72,15 @@ syscall_init (void) {
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
-	lock_init(&filesys_lock);
+	lock_init(&syscall_lock);
 }
 
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
+
+	thread_current()->rsp = f->rsp;
 
 	// 시스템 콜 번호
 	uint64_t syscall_num = f->R.rax;
@@ -124,6 +129,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			close((int)f->R.rdi);
 			break;
+		case SYS_MMAP:
+			f->R.rax = mmap((void *)f->R.rdi, (size_t)f->R.rsi, (int)f->R.rdx, (int)f->R.r10, (off_t)f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			munmap((void *)f->R.rdi);
+			break;
 		default:
 			thread_exit();
 	}
@@ -142,6 +153,15 @@ void exit(int status){
 		file_allow_write(curr->user_prog);
 		file_close(curr->user_prog);
 	}
+
+	struct mmap_table **mmap_table = thread_current()->mmap_table->mmap_table;
+	for(int i=0; i<FD_MAX; i++){
+		if(mmap_table[i] == NULL) continue;
+		//printf("i: %d\n", i);
+		struct mmap_entry *e = mmap_table[i];
+		munmap(e->addr);
+	}
+
 
 	struct file **fd_entries = curr->fd_table->fd_entries;
 	for(int i=0; i<FD_MAX; i++){
@@ -178,6 +198,9 @@ void exit(int status){
 		printf("%s: exit(%d)\n", curr->name, status);
 		
 	}
+
+	if(lock_held_by_current_thread(&syscall_lock)) lock_release(&syscall_lock);
+
 	
 	thread_exit();
 }
@@ -211,58 +234,92 @@ int wait (pid_t pid){
 
 // all done. process wait 구현해야 완전 통과
 bool create(const char *file, unsigned initial_size) {
+
 	if(file == NULL) exit(-1);
+	lock_acquire(&syscall_lock);
 	if(!isValidAddress(file)) exit(-1);
 	bool success = filesys_create(file, initial_size);
+	lock_release(&syscall_lock);
 	return success;
 }
 
 bool remove (const char *file){
-	
+	//lock_acquire(&filesys_lock);
 	bool result = filesys_remove(file);
+	//lock_acquire(&filesys_lock);
 	return result;
 }
 
 // open done.
 int open(const char *file){
+	lock_acquire(&syscall_lock);
 	if(!isValidString(file)) exit(-1);
 	if(file == NULL) return -1;
 	struct file* f = filesys_open(file);
 	
 
 	//printf("f address: %p\n", f);
-	if(f == NULL) return -1;
-	
+	if(f == NULL) {
+		lock_release(&syscall_lock);
+		return -1;
+	}
 
 	struct thread* curr = thread_current();
 	// 0, 1, 2는 예약된 fd
 	for(int fd = 3; fd < FD_MAX; fd++){
 		if(curr->fd_table->fd_entries[fd] == NULL){
 			curr->fd_table->fd_entries[fd] = f;
+			lock_release(&syscall_lock);
 			return fd;
 		}
 	}
 	// fd table 꽉 찼을 때
 	file_close(f);
+	lock_release(&syscall_lock);
 	return -1;
 }
 
 int filesize(int fd){
 	int size = 0;
+	lock_acquire(&syscall_lock);
 	struct thread* curr = thread_current();
 	struct file* f = curr->fd_table->fd_entries[fd];
 	size = file_length(f);
+	lock_release(&syscall_lock);
 	return size;
 }
 
 // read done. rox빼고
 int read(int fd, void *buffer, unsigned size){
-	//printf("read fd: %d\n", fd);
 	if(size == 0) return 0;
 	if(fd < 0) exit(-1);
 	if(fd == 1) exit(-1);
 	if(fd >= FD_MAX) exit(-1);
+	
 	check_valid_buffer(buffer, size);
+	//printf("read fd: %d\n", fd);
+	/* 커널모드에서는 writable 권한이 무시된다. */
+	/* pml4 entry로 권한을 확인하는 방법은 오류가 있다.
+	   일단 *pte는 실제 물리주소이고, 이 물리 주소에 아직 접근하지 않았다.
+	   그래서 페이지폴트는 일어나지 않고, 물리페이지에 매핑도 안된 상태이다.
+	   그 때 writable비트를 확인하게 되면 무조건 0이 나오게된다.
+	   하지만 spt를 이용하면, 매핑되기 전에 확인이 가능하다.
+	*/
+	// uint64_t *pte = pml4e_walk(thread_current()->pml4, (uint64_t) buffer, 0);;
+	// printf("1 physical addr: %p\n", *pte);
+	 // printf("buffer addr: %p\n", buffer);
+	// printf("pte: %p\n", pte);
+
+	
+	// if(pte != NULL && is_writable(pte) == 0) {
+		
+	// 	printf("buffer not writable\n");
+	// 	exit(-1);
+			
+		
+	// }
+
+	lock_acquire(&syscall_lock);
 	if(fd == 0){
 		char c;
 		int i=0;
@@ -271,20 +328,30 @@ int read(int fd, void *buffer, unsigned size){
 			((char *)buffer)[i] = c;
 			if(c == '\n') break;
 		}
+		lock_release(&syscall_lock);
 		return i+1;
 	}
 	else if(fd >= 3){
 		struct thread* curr = thread_current();
 		struct file* f = curr->fd_table->fd_entries[fd];
+		//printf("f addr: %p\n", f);
 		if(f == NULL) return -1;
 		//printf("inode pointer: %p\n", f->inode);
+		struct page *page = spt_find_page(&curr->spt, buffer);
+		if(page && !page->writable){
+			//printf("2 physical addr: %p\n", page->frame->kva);
+			lock_release(&syscall_lock);
+			exit(-1);
+		}
+		//file_seek(f, 0);
 		lock_acquire(&f->inode->inode_lock);
-		//printf("buffer: %p, size: %u\n", buffer, size);
 		int result = file_read(f, buffer, size);
 		lock_release(&f->inode->inode_lock);
 		//printf("file_read returned %d\n", result);
+		lock_release(&syscall_lock);
 		return result;
 	}
+	lock_release(&syscall_lock);
 }
 
 // write done
@@ -296,16 +363,24 @@ int write(int fd, const void *buffer, unsigned size){
 	
 	// 표준 출력
 	check_valid_buffer(buffer, size);
+	lock_acquire(&syscall_lock);
 	if(fd == 1 || fd == 2){
 		putbuf(buffer, (size_t)size);
+		lock_release(&syscall_lock);
 		return (int)size;
 	}
 	else{
 		struct thread* curr = thread_current();
 		struct file* f = curr->fd_table->fd_entries[fd];
-		if(f == NULL) exit(-1);
-		return file_write(f, buffer, size);
+		if(f == NULL) {
+			lock_release(&syscall_lock);
+			exit(-1);
+		}
+		off_t result = file_write(f, buffer, size);
+		lock_release(&syscall_lock);
+		return result;
 	}
+	lock_release(&syscall_lock);
 	return 0;
 }
 
@@ -324,10 +399,12 @@ void close(int fd){
 	if(fd < 0) exit(-1);
 	if(fd == 0 || fd == 1 || fd == 2) exit(-1);
 	if(fd >= FD_MAX) exit(-1);
+	lock_acquire(&syscall_lock);
 	struct thread *curr = thread_current();
 	struct file *file = curr->fd_table->fd_entries[fd];
 	curr->fd_table->fd_entries[fd] = NULL;
 	file_close(file);
+	lock_release(&syscall_lock);
 }
 
 bool isValidAddress(const void *ptr){
@@ -352,11 +429,187 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 
     for (unsigned i = 0; i < size; i++) {
         // 유저 주소 범위 체크
-        if (!is_user_vaddr(ptr + i))
-            exit(-1);
+        if (!is_user_vaddr(ptr + i));
+            //exit(-1);
 
         // 페이지 매핑 존재 여부 체크
-        if (pml4_get_page(curr->pml4, ptr + i) == NULL)
-            exit(-1);
+        if (pml4_get_page(curr->pml4, ptr + i) == NULL);
+            //exit(-1);
     }
+}
+
+void *
+mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+
+	if(length <= 0) return NULL;
+	/* 64비트 주소가 표현할 수 있는 주소 공간 크기를 벗어나는 길이 */
+	if(length > (1ULL << 48)) return NULL;
+	if((uintptr_t)addr < 0) return NULL;
+	if((uintptr_t)addr < 0x400000) return NULL;
+	if((uintptr_t)addr >= KERN_BASE) return NULL;
+	if(fd == 0 || fd == 1 || fd >= FD_MAX) return NULL;
+	if(addr != pg_round_down(addr)) return NULL;
+	if(length < offset) return NULL;
+	if(filesize(fd) == 0) return NULL;
+	lock_acquire(&syscall_lock);
+	//printf("here\n");
+	void *t_addr;
+	t_addr = addr;
+
+	off_t real_ofs = offset;
+	// printf("addr: %p\n", addr);
+	// printf("length: %u\n", (uintptr_t)addr + length);
+	// range of pages does not overlap any existing mapped page
+	while(t_addr < addr + length){
+		//printf("검사\n");
+		if(t_addr > KERN_BASE) return NULL;
+		struct page* page = spt_find_page(&thread_current()->spt, t_addr);
+		if(page) {
+			lock_release(&syscall_lock);
+			return NULL;
+		}
+		t_addr += PGSIZE;
+		
+	}
+	
+	
+	void *adrs = addr;
+	struct thread *curr = thread_current();
+	// struct file *file = curr->fd_table->fd_entries[fd];
+	struct file *file = file_reopen(curr->fd_table->fd_entries[fd]);
+	//printf("file: %p\n", file);
+	uint32_t read_bytes = length;
+	uint32_t zero_bytes = ((length + PGSIZE - 1) / PGSIZE * PGSIZE) - length;
+
+	int pagesize = 0;
+
+	while(read_bytes > 0 || zero_bytes > 0){
+		pagesize++;
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+		// printf("mmap read_bytes: %d\n", read_bytes);
+		// printf("mmap page_read_bytes: %d\n", page_read_bytes);
+		// printf("mmap page_zero_bytes: %d\n", page_zero_bytes);
+		void *aux = NULL;
+		struct load_segment_para *lsp = calloc(1, sizeof(struct load_segment_para));
+		lsp->file = file;
+		lsp->ofs = offset;
+		lsp->upage = adrs;
+		lsp->read_bytes = page_read_bytes;
+		lsp->zero_bytes = page_zero_bytes;
+		lsp->writable = writable;
+		aux = lsp;
+
+		if (!vm_alloc_page_with_initializer (VM_FILE, adrs,
+					writable, lazy_load_segment_mmap, aux)){
+						lock_release(&syscall_lock);
+						return NULL;
+					}
+
+		/* Advance. */
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
+		adrs += PGSIZE;
+		/* file_read를 하지 않기 때문에 수동으로 ofs을 이동시켜줘야 한다. */
+		offset += page_read_bytes;  
+	}
+
+	/* insert to mmap table */
+	struct mmap_entry *e = calloc(1, sizeof(struct mmap_entry));
+	e->addr = addr;
+	e->file = file;
+	e->length = length;
+	e->pagesize = pagesize;
+	e->ofs = real_ofs;
+	thread_current()->mmap_table->mmap_table[fd] = e;
+
+
+	
+	lock_release(&syscall_lock);
+	return addr;
+}	
+
+// void
+// munmap (void *addr) {
+// 	//printf("munmap\n");
+// 	struct mmap_entry *e = NULL;
+// 	struct mmap_entry **mmap_table = thread_current()->mmap_table->mmap_table;
+// 	for(int i = 3; i<FD_MAX; i++){
+// 		if(mmap_table[i] != NULL && mmap_table[i]->addr == addr){
+// 			e = mmap_table[i];
+// 			mmap_table[i] = NULL;
+// 			break;
+// 		}
+// 	}
+// 	if(e == NULL) return;
+// 	// printf("addr: %p\n", addr);
+// 	// printf("addr file: %p\n", e->file);
+// 	// printf("length: %d\n", e->length);
+// 	//printf("%s\n", addr);
+// 	lock_acquire(&syscall_lock);
+	
+// 	// 수정된 경우
+// 	size_t offset = e->ofs;
+// 	void *tmpaddr = addr;
+// 	size_t read_bytes = e->length; 
+// 	while(read_bytes > 0){
+// 		file_seek(e->file, offset);
+// 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+// 		if(pml4_is_dirty(thread_current()->pml4, tmpaddr)){
+// 			size_t result = file_write(e->file, tmpaddr, page_read_bytes);
+// 			//printf("dirty write byte: %d\n", result);
+// 			//printf("dirty\n");
+// 		}
+// 		//printf("mid\n");
+// 		struct page *page = spt_find_page(&thread_current()->spt, tmpaddr);
+// 		if(!page) {
+// 			lock_release(&syscall_lock);
+// 			//printf("null page\n");
+			
+// 		}
+// 		spt_remove_page(&thread_current()->spt, page);
+		
+// 		//printf("end\n");
+// 		read_bytes -= page_read_bytes;
+// 		tmpaddr += PGSIZE;
+// 		offset += PGSIZE;
+// 	}
+	
+
+// 	lock_release(&syscall_lock);
+// 	//file_seek(e->file, 0);
+// 	//printf("munmap done\n");
+
+// }
+
+void
+munmap (void *addr) {
+	struct thread *curr = thread_current();
+    struct page *page;
+
+    lock_acquire(&syscall_lock);
+    while ((page = spt_find_page(&curr->spt, addr))) {
+		struct file_page *file_page UNUSED = &page->file;
+
+		if(pml4_is_dirty(thread_current()->pml4, page->va)){
+			file_write_at(file_page->file, file_page->upage, file_page->read_bytes, file_page->ofs);
+			pml4_set_dirty(thread_current()->pml4, page->va, false);
+		}
+
+		if(page->frame){
+			list_remove(&page->frame->elem);
+			page->frame->page = NULL;
+			palloc_free_page(page->frame->kva);
+			free(page->frame);
+			page->frame = NULL;
+			
+		}
+
+		pml4_clear_page(thread_current()->pml4, page->va);
+		spt_remove_page(&thread_current()->spt, page);
+		
+        addr += PGSIZE;
+    }
+    lock_release(&syscall_lock);
+
 }

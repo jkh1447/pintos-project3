@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include "include/lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -17,7 +18,10 @@ enum vm_type {
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
-	VM_MARKER_0 = (1 << 3),
+	/* 상위 2비트는 4가지 상태를 위해 예약되어있고
+		이후에는 추가적인 속성
+	*/
+	VM_MARKER_0 = (1 << 3), // 1<<3 은 2^3으로 3번째 비트가 1이다.
 	VM_MARKER_1 = (1 << 4),
 
 	/* DO NOT EXCEED THIS VALUE. */
@@ -46,7 +50,14 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
+	/* iswritable? */
+	bool writable;
 
+	/* True if the page has been swapped out to disk */
+    bool is_swapped;
+	
+	/* hash table에 추가하기 위해서 */
+	struct hash_elem elem;
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {
@@ -63,6 +74,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
 };
 
 /* The function table for page operations.
@@ -85,6 +97,8 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	/* hash table */
+	struct hash spt_table;
 };
 
 #include "threads/thread.h"

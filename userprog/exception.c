@@ -122,7 +122,8 @@ page_fault (struct intr_frame *f) {
 	bool write;        /* True: access was write, false: access was read. */
 	bool user;         /* True: access by user, false: access by kernel. */
 	void *fault_addr;  /* Fault address. */
-
+	
+	
 	/* Obtain faulting address, the virtual address that was
 	   accessed to cause the fault.  It may point to code or to
 	   data.  It is not necessarily the address of the instruction
@@ -130,13 +131,20 @@ page_fault (struct intr_frame *f) {
 
 	// 프로세서에서 자동으로 페이지폴트난 주소를 cr2레지스터에 저장한다
 	fault_addr = (void *) rcr2();
-
+	// printf("Page fault at %p: %s error %s page in %s context.\n",
+    //     fault_addr,
+    //     f->error_code & PF_P ? "rights violation" : "not present",
+    //     f->error_code & PF_W ? "writing" : "reading",
+    //     f->error_code & PF_U ? "user" : "kernel");
+    
+    // // 추가 디버깅 정보 출력
+    // printf("[DEBUG] rip: %p, rsp: %p\n", f->rip, f->rsp);
 	/* bad behavior  */
 
-	if(!is_user_vaddr(fault_addr) || pml4_get_page(thread_current()->pml4, fault_addr) == NULL || fault_addr == NULL)
-		exit(-1);
+	// if(!is_user_vaddr(fault_addr) || pml4_get_page(thread_current()->pml4, fault_addr) == NULL || fault_addr == NULL)
+	// 	exit(-1);
 	
-
+	//printf("fault addr: %p, write: %d, not present: %d\n", fault_addr, write, not_present);
 	/* Turn interrupts back on (they were only off so that we could
 	   be assured of reading CR2 before it changed). */
 	intr_enable ();
@@ -153,15 +161,17 @@ page_fault (struct intr_frame *f) {
 		return;
 #endif
 
-	/* Count page faults. */
-	page_fault_cnt++;
 
-	/* If the fault is true fault, show info and exit. */
-	printf ("Page fault at %p: %s error %s page in %s context.\n",
-			fault_addr,
-			not_present ? "not present" : "rights violation",
-			write ? "writing" : "reading",
-			user ? "user" : "kernel");
+exit(-1);	
+/* Count page faults. */
+page_fault_cnt++;
+
+/* If the fault is true fault, show info and exit. */
+printf ("Page fault at %p: %s error %s page in %s context.\n",
+	fault_addr,
+	not_present ? "not present" : "rights violation",
+	write ? "writing" : "reading",
+	user ? "user" : "kernel");
 	kill (f);
 }
 

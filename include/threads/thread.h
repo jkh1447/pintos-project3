@@ -105,6 +105,18 @@ struct fd_table{
 	struct file* fd_entries[FD_MAX];
 };
 
+struct mmap_entry{
+	void *addr;
+	struct file* file;
+	size_t length;
+	int pagesize;
+	off_t ofs;
+};
+
+struct mmap_table{
+	struct mmap_entry* mmap_table[FD_MAX];
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -132,6 +144,9 @@ struct thread {
 	struct lock childlist_lock;
 	struct list child_list;
 
+	/* mmap management */
+	struct mmap_table *mmap_table;
+
 	/*file descriptor*/
 	struct fd_table *fd_table;
 
@@ -139,6 +154,8 @@ struct thread {
 	struct semaphore sema_fork;
 
 	struct file *user_prog;
+
+	void *rsp;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

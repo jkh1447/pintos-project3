@@ -5,12 +5,12 @@
  *
  * This data structure is thoroughly documented in the Tour of
  * Pintos for Project 3.
- *
+ * 체이닝 해시 테이블
  * This is a standard hash table with chaining.  To locate an
  * element in the table, we compute a hash function over the
  * element's data and use that as an index into an array of
  * doubly linked lists, then linearly search the list.
- *
+ * 배열의 각 칸마다 doubly linked list가 있다.
  * The chain lists do not use dynamic allocation.  Instead, each
  * structure that can potentially be in a hash must embed a
  * struct hash_elem member.  All of the hash functions operate on
@@ -18,7 +18,10 @@
  * conversion from a struct hash_elem back to a structure object
  * that contains it.  This is the same technique used in the
  * linked list implementation.  Refer to lib/kernel/list.h for a
- * detailed explanation. */
+ * detailed explanation. 
+ * 해시 테이블에 데이터를 넣으려면 해당 데이터 구조체 안에 반드시 struct hash_elem이라는 맴버가 필요하다.
+ * list에서와 같이 hash_entry를 이용할 수 있다.
+ * */
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -41,24 +44,28 @@ struct hash_elem {
 
 /* Computes and returns the hash value for hash element E, given
  * auxiliary data AUX. */
+/* 해시 테이블 인덱스를 계산하는 함수 */
 typedef uint64_t hash_hash_func (const struct hash_elem *e, void *aux);
 
+uint64_t hash_bytes (const void *buf_, size_t size);
 /* Compares the value of two hash elements A and B, given
  * auxiliary data AUX.  Returns true if A is less than B, or
  * false if A is greater than or equal to B. */
+/* 해시테이블의 요소를 정렬하거나, 비교할 때 쓰이는 함수 */
 typedef bool hash_less_func (const struct hash_elem *a,
 		const struct hash_elem *b,
 		void *aux);
 
 /* Performs some operation on hash element E, given auxiliary
  * data AUX. */
+
 typedef void hash_action_func (struct hash_elem *e, void *aux);
 
 /* Hash table. */
 struct hash {
 	size_t elem_cnt;            /* Number of elements in table. */
 	size_t bucket_cnt;          /* Number of buckets, a power of 2. */
-	struct list *buckets;       /* Array of `bucket_cnt' lists. */
+	struct list *buckets;       /* Array of `bucket_cnt' lists. list들을 원소로 갖는 배열. struct list 크기만큼 포인터 연산이 되어서 배열로 사용 가능하다.*/
 	hash_hash_func *hash;       /* Hash function. */
 	hash_less_func *less;       /* Comparison function. */
 	void *aux;                  /* Auxiliary data for `hash' and `less'. */

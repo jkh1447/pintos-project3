@@ -17,7 +17,8 @@
 struct file *
 file_open (struct inode *inode) {
 	struct file *file = calloc (1, sizeof *file);
-	
+	// printf("file: %p\n", file);
+	// printf("inode: %p\n", inode);
 	if (inode != NULL && file != NULL) {
 		file->inode = inode;
 		file->pos = 0;
